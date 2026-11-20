@@ -1007,6 +1007,10 @@ dialog#reprint::backdrop{background:rgba(8,6,5,.65)}
     <fieldset>
       <legend>Take-home options</legend>
       <div class="field"><label for="s-print">Printing</label><input class="switch" type="checkbox" id="s-print" data-setting="printEnabled"></div>
+      <div class="field"><label for="s-paper">Printer paper</label>
+        <select id="s-paper" data-setting="printPaper"><option value="4x6">4×6″ / 10×15 cm photo paper (inkjet)</option><option value="selphy">Canon SELPHY postcard 100×148 mm (tear-off edges)</option></select>
+        <p class="help">SELPHY paper has perforated strips at both ends. The SELPHY setting keeps everything inside the part you keep, with a slim white edge, so nothing is lost when you tear them off. In the print window choose <b>Postcard (Borderless)</b>.</p>
+      </div>
       <div class="field"><label for="s-twoup">Two strips per 4×6 sheet</label><input class="switch" type="checkbox" id="s-twoup" data-setting="twoUp"><p class="help">Prints each strip twice on one 4R (4×6″) sheet so you can cut it in half — portrait strips side by side, landscape strips one above the other. Off prints a single 2×6″ page.</p></div>
       <div class="field"><label for="s-qr">QR code to phone</label><input class="switch" type="checkbox" id="s-qr" data-setting="qrEnabled"><p class="help">Uploads the finished print to your own storage and shows a QR code that opens the file directly — no download pages, no ads. Needs an internet connection.</p><p class="help" id="qrSetupNote"></p></div>
       <div class="field"><span class="fl">QR codes on the print</span>
@@ -1304,7 +1308,7 @@ const KEY = 'photobooth.settings.v1';
 const DEFAULTS = {
   theme: 'auto', title: 'Photobooth', subtitle: '', paper: '#f7f0e5', layout: 'strip',
   cameraId: '', resolution: '4k', enhance: 'natural', denoise: 'normal', mirrorPreview: true, mirrorPhotos: true,
-  countdown: 3, pause: 2, shotCount: 5, perf: 'auto', guestDesigns: true, keepAwake: true, sound: true, liveEnabled: false, gifEnd: 'loop', motionFormat: 'gif', gifSize: 'full', qrMode: 'gallery',
+  countdown: 3, pause: 2, shotCount: 5, perf: 'auto', printPaper: '4x6', guestDesigns: true, keepAwake: true, sound: true, liveEnabled: false, gifEnd: 'loop', motionFormat: 'gif', gifSize: 'full', qrMode: 'gallery',
   printEnabled: true, twoUp: true, qrEnabled: true, qrPrint: 'both', printQrLink: 'video',
   uploadService: 'cloudinary', cloudName: 'whgs8x00', cloudPreset: 'photobooth', imgbbKey: '', customUrl: '', customField: 'file', customPath: 'url',
   downloadEnabled: true, autoSave: false, saveOriginals: false, dayFolders: true, autoReset: 60, hideSettings: false,
@@ -2631,6 +2635,21 @@ function finish() {
 }
 
 /* ---------- print ---------- */
+// Put a finished 4×6 sheet onto the chosen paper. SELPHY postcards (100×148 mm) have tear-off strips at the short ends,
+// and borderless printing spills a little past the edge, so the picture is kept inside a safe area.
+function onPaper(canvas) {
+  const land = canvas.width > canvas.height;
+  if (settings.printPaper !== 'selphy') { const [w, h] = land ? [6, 4] : [4, 6]; return { canvas, css: `${w}in ${h}in`, w: `${w}in`, h: `${h}in` }; }
+  const mm = (v) => Math.round(v / 25.4 * 300);
+  const W = land ? mm(148) : mm(100), H = land ? mm(100) : mm(148), ends = mm(6), sides = mm(3);
+  const padX = land ? ends : sides, padY = land ? sides : ends;
+  const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d');
+  x.fillStyle = '#fff'; x.fillRect(0, 0, W, H); x.imageSmoothingQuality = 'high';
+  const k = Math.min((W - 2 * padX) / canvas.width, (H - 2 * padY) / canvas.height), w = canvas.width * k, h = canvas.height * k;
+  x.drawImage(canvas, (W - w) / 2, (H - h) / 2, w, h);
+  const [pw, ph] = land ? ['148mm', '100mm'] : ['100mm', '148mm'];
+  return { canvas: c, css: `${pw} ${ph}`, w: pw, h: ph };
+}
 async function doPrint() {
   const btn = $('#btnPrint'); btn.disabled = true; const label = btn.textContent;
   try {
@@ -2642,14 +2661,13 @@ async function doPrint() {
       qr = printQr(false);
     }
     await ensureFont();
-    const sheet = printSheet(compose(qr));
-    const url = sheet.canvas.toDataURL('image/jpeg', 0.95);
+    const sheet = printSheet(compose(qr)), paper = onPaper(sheet.canvas);
+    const url = paper.canvas.toDataURL('image/jpeg', 0.95);
     const area = $('#printArea'); area.innerHTML = '';
     const imgs = [];
     for (let i = 0; i < S.copies; i++) { const im = new Image(); im.alt = ''; im.src = url; area.appendChild(im); imgs.push(im); }
     await Promise.all(imgs.map((im) => (im.decode ? im.decode().catch(() => {}) : Promise.resolve())));
-    const [w, h] = sheet.inch;
-    $('#pageStyle').textContent = `@page{size:${w}in ${h}in;margin:0}@media print{#printArea img{width:${w}in;height:${h}in;object-fit:contain}}`;
+    $('#pageStyle').textContent = `@page{size:${paper.css};margin:0}@media print{#printArea img{width:${paper.w};height:${paper.h};object-fit:contain}}`;
     await wait(50);
     window.print();
   } finally { btn.disabled = false; btn.textContent = label; }
@@ -3332,9 +3350,10 @@ async function rpPrint() {
   const btn = $('#rpPrint'); btn.disabled = true;
   try {
     const sheets = rpSheets(), area = $('#printArea'); area.innerHTML = '';
-    const imgs = sheets.map((c) => { const im = new Image(); im.alt = ''; im.src = c.toDataURL('image/jpeg', 0.95); area.appendChild(im); return im; });
+    let paper = null;
+    const imgs = sheets.map((c) => { paper = onPaper(c); const im = new Image(); im.alt = ''; im.src = paper.canvas.toDataURL('image/jpeg', 0.95); area.appendChild(im); return im; });
     await Promise.all(imgs.map((im) => (im.decode ? im.decode().catch(() => {}) : Promise.resolve())));
-    $('#pageStyle').textContent = '@page{size:4in 6in;margin:0}@media print{#printArea img{width:4in;height:6in;object-fit:contain}}';
+    $('#pageStyle').textContent = `@page{size:${paper.css};margin:0}@media print{#printArea img{width:${paper.w};height:${paper.h};object-fit:contain}}`;
     rd.close();
     await wait(80);
     window.print();
