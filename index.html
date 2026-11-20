@@ -607,6 +607,26 @@ html.lite .preview img,html.lite .preview video{box-shadow:0 6px 18px var(--shad
 .share-go{flex-wrap:nowrap}
 .share-go .hint{min-width:0;font-size:13px}
 .share-go .btn,.share-go .btn-go{flex:none}
+
+dialog#reprint{width:min(760px,calc(100vw - 32px));max-height:calc(100vh - 32px);padding:0;border:0;border-radius:26px;background:var(--dialog);color:var(--text);box-shadow:0 40px 90px rgba(0,0,0,.45);overflow:hidden}
+dialog#reprint::backdrop{background:rgba(8,6,5,.65)}
+.rp-drop{display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:16px;padding:26px 20px;border:2px dashed var(--line);border-radius:20px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s}
+.rp-drop:hover,.rp-drop.over{border-color:var(--accent);background:rgba(255,90,54,.07)}
+.rp-drop input{position:absolute;width:1px;height:1px;opacity:0}
+.rp-drop .i{width:30px;height:30px;color:var(--accent)}
+.rp-drop strong{font-size:18px}
+.rp-drop span{color:var(--muted);font-size:14px;max-width:460px;line-height:1.45}
+.rp-list{display:flex;flex-direction:column;gap:10px;margin-top:16px}
+.rp-item{display:grid;grid-template-columns:72px minmax(0,1fr) auto auto;align-items:center;gap:14px;padding:10px 12px;border-radius:16px;background:rgba(var(--fg-rgb),.05);border:1px solid var(--line)}
+.rp-item img{width:72px;height:72px;object-fit:contain;border-radius:8px;background:rgba(var(--fg-rgb),.08)}
+.rp-item .nm{font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rp-item select{margin-top:6px;width:100%;max-width:340px}
+.rp-item .copies{margin:0}
+.rp-item .rm{width:36px;height:36px;border-radius:50%;border:1px solid var(--line);background:transparent;color:var(--text);font-size:18px}
+.rp-foot{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:18px;position:sticky;bottom:-28px;padding:14px 0 18px;background:var(--dialog);border-top:1px solid var(--line);z-index:2}
+.rp-pair{display:flex;align-items:center;gap:8px;font-size:14px}
+.rp-sum{flex:1;color:var(--muted);font-size:14px;text-align:right}
+@media (max-width:640px){.rp-item{grid-template-columns:56px minmax(0,1fr) auto}.rp-item .copies{grid-column:2 / -1}.rp-item img{width:56px;height:56px}}
 </style>
 <style id="pageStyle"></style>
 </head>
@@ -648,6 +668,7 @@ html.lite .preview img,html.lite .preview video{box-shadow:0 6px 18px var(--shad
       <button class="icon-btn" id="btnCamera" type="button" aria-label="Switch camera" hidden><svg class="i"><use href="#i-camswitch"/></svg></button>
       <button class="icon-btn" id="btnTheme" type="button" aria-label="Theme"><svg class="i theme-ico"><use class="t-auto" href="#i-auto"/><use class="t-light" href="#i-sun"/><use class="t-dark" href="#i-moon"/></svg></button>
       <button class="icon-btn" id="btnFullscreen" type="button" aria-label="Full screen"><svg class="i"><use href="#i-full"/></svg></button>
+      <button class="icon-btn" id="btnReprint" type="button" aria-label="Reprint old photos" title="Reprint old photos"><svg class="i"><use href="#i-print"/></svg></button>
       <button class="icon-btn" id="btnDesign" type="button" aria-label="Design your prints" title="Design your prints"><svg class="i"><use href="#i-brush"/></svg></button>
       <button class="icon-btn" id="btnSettings" type="button" aria-label="Settings"><svg class="i"><use href="#i-sliders"/></svg></button>
     </div>
@@ -1069,6 +1090,28 @@ html.lite .preview img,html.lite .preview video{box-shadow:0 6px 18px var(--shad
       <div class="field"><span class="fl">Reset</span><button type="button" class="btn btn-ghost btn-sm" id="btnResetSettings" style="justify-self:start">Restore defaults</button></div>
     </fieldset>
 
+  </div>
+</dialog>
+
+<dialog id="reprint" aria-labelledby="reprintTitle">
+  <div class="dlg-head">
+    <h2 id="reprintTitle">Reprint old photos</h2>
+    <button type="button" class="btn btn-light btn-sm" id="btnCloseReprint">Done</button>
+  </div>
+  <div class="dlg-body">
+    <label class="rp-drop" id="rpDrop">
+      <input type="file" id="rpFile" accept="image/jpeg,image/png,image/webp" multiple>
+      <svg class="i"><use href="#i-print"/></svg>
+      <strong>Choose photos to print</strong>
+      <span>Pick prints the booth saved earlier (from your save folder or Downloads), or drop them here. You can choose several at once.</span>
+    </label>
+    <div class="rp-list" id="rpList"></div>
+    <div class="rp-foot" id="rpFoot" hidden>
+      <label class="rp-pair"><input type="checkbox" id="rpPair" checked> Put two different strips on one sheet</label>
+      <span class="rp-sum" id="rpSum"></span>
+      <button type="button" class="btn btn-ghost btn-sm" id="rpClear">Clear</button>
+      <button type="button" class="btn btn-primary" id="rpPrint"><svg class="i"><use href="#i-print"/></svg>Print</button>
+    </div>
   </div>
 </dialog>
 
@@ -3188,6 +3231,127 @@ function openDesign() { if (dlg.open) dlg.close(); fillSettings(); designLayout 
 $('#btnDesign').addEventListener('click', openDesign);
 $('#btnOpenDesign').addEventListener('click', openDesign);
 $('#btnCloseDesign').addEventListener('click', () => dd.close());
+
+/* ---------- reprint old photos ---------- */
+const rd = $('#reprint');
+const RP = { items: [] };
+const RP_FORMATS = {
+  strip: 'Classic strip 2×6″ — two per 4×6″ sheet',
+  hstrip: 'Landscape strip 6×2″ — two per 4×6″ sheet',
+  portrait: '4×6″ portrait — full sheet',
+  landscape: '6×4″ landscape — full sheet',
+  fit: 'Whole photo on 4×6″ (white edges if needed)',
+  fill: 'Fill 4×6″ (crops the edges)'
+};
+function rpGuess(w, h) {
+  const r = w / h;
+  if (r > 0.28 && r < 0.4) return 'strip';
+  if (r > 2.5 && r < 3.6) return 'hstrip';
+  if (r > 0.6 && r < 0.73) return 'portrait';
+  if (r > 1.37 && r < 1.66) return 'landscape';
+  return 'fit';
+}
+async function rpAdd(files) {
+  let added = 0;
+  for (const f of files) {
+    if (!/^image\//.test(f.type)) continue;
+    const img = await blobToImage(f); if (!img) { toast(`${f.name} couldn’t be opened.`); continue; }
+    RP.items.push({ id: Math.random().toString(36).slice(2), name: f.name, img, url: img.src, fmt: rpGuess(img.naturalWidth, img.naturalHeight), copies: 1 });
+    added++;
+  }
+  if (added) paintRp();
+}
+function rpSheets() {
+  const pair = $('#rpPair').checked, sheets = [], strips = [], hstrips = [];
+  const sheet = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, w, h); x.imageSmoothingQuality = 'high'; return [c, x]; };
+  const toPortrait = (c) => { if (c.width <= c.height) return c; const [p, x] = sheet(c.height, c.width); x.translate(p.width, 0); x.rotate(Math.PI / 2); x.drawImage(c, 0, 0); return p; };
+  const contain = (x, img, W, H) => { const k = Math.min(W / img.naturalWidth, H / img.naturalHeight), w = img.naturalWidth * k, h = img.naturalHeight * k; x.drawImage(img, (W - w) / 2, (H - h) / 2, w, h); };
+  for (const it of RP.items) for (let n = 0; n < it.copies; n++) {
+    if (it.fmt === 'strip') strips.push(it.img);
+    else if (it.fmt === 'hstrip') hstrips.push(it.img);
+    else {
+      const land = it.fmt === 'landscape' || ((it.fmt === 'fit' || it.fmt === 'fill') && it.img.naturalWidth > it.img.naturalHeight);
+      const [c, x] = land ? sheet(1800, 1200) : sheet(1200, 1800);
+      if (it.fmt === 'fit') contain(x, it.img, c.width, c.height); else drawCover(x, it.img, 0, 0, c.width, c.height);
+      sheets.push(toPortrait(c));
+    }
+  }
+  const twoUp = (list, vertical) => {
+    const per = pair ? 2 : 1;
+    for (let i = 0; i < list.length; i += per) {
+      const a = list[i], b = pair ? (list[i + 1] || a) : a;
+      if (!vertical) {
+        const [c, x] = sheet(1200, 1800); drawCover(x, a, 0, 0, 600, 1800); drawCover(x, b, 600, 0, 600, 1800);
+        x.fillStyle = 'rgba(0,0,0,.25)'; x.fillRect(599, 0, 2, 26); x.fillRect(599, 1774, 2, 26); sheets.push(c);
+      } else {
+        const [c, x] = sheet(1800, 1200); drawCover(x, a, 0, 0, 1800, 600); drawCover(x, b, 0, 600, 1800, 600);
+        x.fillStyle = 'rgba(0,0,0,.25)'; x.fillRect(0, 599, 26, 2); x.fillRect(1774, 599, 26, 2); sheets.push(toPortrait(c));
+      }
+    }
+  };
+  twoUp(strips, false); twoUp(hstrips, true);
+  return sheets;
+}
+function rpCount() {
+  const pair = $('#rpPair').checked; let s = 0, st = 0, hs = 0;
+  for (const it of RP.items) { if (it.fmt === 'strip') st += it.copies; else if (it.fmt === 'hstrip') hs += it.copies; else s += it.copies; }
+  const per = pair ? 2 : 1;
+  return { sheets: s + Math.ceil(st / per) + Math.ceil(hs / per), oddStrip: pair && ((st % 2) || (hs % 2)) };
+}
+function paintRp() {
+  const box = $('#rpList'); box.innerHTML = '';
+  for (const it of RP.items) {
+    const row = document.createElement('div'); row.className = 'rp-item';
+    row.innerHTML = `<img alt=""><div style="min-width:0"><div class="nm"></div><select aria-label="Print as"></select></div>
+      <div class="copies" role="group" aria-label="Copies"><button type="button" aria-label="Fewer copies"><svg class="i"><use href="#i-minus"/></svg></button><output></output><button type="button" aria-label="More copies"><svg class="i"><use href="#i-plus"/></svg></button></div>
+      <button type="button" class="rm" aria-label="Remove">×</button>`;
+    row.querySelector('img').src = it.url; row.querySelector('.nm').textContent = it.name;
+    const sel = row.querySelector('select');
+    for (const [k, v] of Object.entries(RP_FORMATS)) { const o = document.createElement('option'); o.value = k; o.textContent = v; sel.appendChild(o); }
+    sel.value = it.fmt; sel.addEventListener('change', () => { it.fmt = sel.value; paintRpFoot(); });
+    const out = row.querySelector('output'), [minus, plus] = row.querySelectorAll('.copies button');
+    const pc = () => { out.textContent = `${it.copies} cop${it.copies > 1 ? 'ies' : 'y'}`; paintRpFoot(); };
+    minus.addEventListener('click', () => { it.copies = Math.max(1, it.copies - 1); pc(); });
+    plus.addEventListener('click', () => { it.copies = Math.min(10, it.copies + 1); pc(); });
+    row.querySelector('.rm').addEventListener('click', () => { RP.items = RP.items.filter((x) => x !== it); paintRp(); });
+    out.textContent = `${it.copies} cop${it.copies > 1 ? 'ies' : 'y'}`;
+    box.appendChild(row);
+  }
+  paintRpFoot();
+}
+function paintRpFoot() {
+  $('#rpFoot').hidden = !RP.items.length;
+  if (!RP.items.length) return;
+  const c = rpCount();
+  $('#rpSum').textContent = `${c.sheets} sheet${c.sheets > 1 ? 's' : ''} of 4×6″ paper${c.oddStrip ? ' · odd number of strips, so the last one prints twice' : ''}`;
+  $('#rpPrint').innerHTML = `<svg class="i"><use href="#i-print"/></svg>Print ${c.sheets} sheet${c.sheets > 1 ? 's' : ''}`;
+}
+async function rpPrint() {
+  if (!RP.items.length) return;
+  const btn = $('#rpPrint'); btn.disabled = true;
+  try {
+    const sheets = rpSheets(), area = $('#printArea'); area.innerHTML = '';
+    const imgs = sheets.map((c) => { const im = new Image(); im.alt = ''; im.src = c.toDataURL('image/jpeg', 0.95); area.appendChild(im); return im; });
+    await Promise.all(imgs.map((im) => (im.decode ? im.decode().catch(() => {}) : Promise.resolve())));
+    $('#pageStyle').textContent = '@page{size:4in 6in;margin:0}@media print{#printArea img{width:4in;height:6in;object-fit:contain}}';
+    rd.close();
+    await wait(80);
+    window.print();
+  } finally { btn.disabled = false; }
+}
+function openReprint() { if (dlg.open) dlg.close(); if (dd.open) dd.close(); paintRp(); if (!rd.open) rd.showModal(); }
+$('#btnReprint').addEventListener('click', openReprint);
+$('#btnCloseReprint').addEventListener('click', () => rd.close());
+$('#rpFile').addEventListener('change', (e) => { const fs = Array.from(e.target.files || []); e.target.value = ''; rpAdd(fs); });
+$('#rpPair').addEventListener('change', paintRpFoot);
+$('#rpClear').addEventListener('click', () => { RP.items = []; paintRp(); });
+$('#rpPrint').addEventListener('click', rpPrint);
+const rpDrop = $('#rpDrop');
+['dragenter', 'dragover'].forEach((t) => rpDrop.addEventListener(t, (e) => { e.preventDefault(); rpDrop.classList.add('over'); }));
+['dragleave', 'drop'].forEach((t) => rpDrop.addEventListener(t, () => rpDrop.classList.remove('over')));
+rpDrop.addEventListener('drop', (e) => { e.preventDefault(); rpAdd(Array.from(e.dataTransfer.files || [])); });
+window.__boothReprint = { RP, rpSheets, rpAdd };
+
 dd.addEventListener('click', (e) => { if (e.target === dd) dd.close(); });
 
 /* ---------- stickers ---------- */
