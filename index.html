@@ -1389,7 +1389,7 @@ const isGif = () => settings.motionFormat !== 'mp4';
 const motionLabel = () => (isGif() ? 'GIF' : 'Video');
 const FILTER_CSS = { none: 'none', mono: 'grayscale(1) contrast(1.18)', warm: 'sepia(.22) saturate(1.15) brightness(1.04)', vivid: 'saturate(1.4) contrast(1.08)',
   glow: 'brightness(1.08) contrast(.9) saturate(1.06) sepia(.06)', pink: 'contrast(.86) brightness(1.08) saturate(.92) sepia(.12) hue-rotate(-22deg)',
-  film: 'contrast(.86) brightness(1.04) sepia(.2) saturate(.88) hue-rotate(8deg)', noir: 'grayscale(1) contrast(1.5) brightness(.96)',
+  film: 'contrast(.86) brightness(1.02) sepia(.24) saturate(.88) hue-rotate(8deg)', noir: 'grayscale(1) contrast(1.5) brightness(.96)',
   cool: 'brightness(1.05) contrast(1.06) saturate(1.05) hue-rotate(-8deg)', golden: 'sepia(.3) saturate(1.25) brightness(1.06) contrast(.95) hue-rotate(-6deg)' };
 const LIVE_SUPPORTED = typeof window.MediaRecorder === 'function' && typeof HTMLCanvasElement.prototype.captureStream === 'function';
 const liveOn = () => LIVE_SUPPORTED && !!settings.liveEnabled;
@@ -2036,6 +2036,9 @@ function applyFilter(img, type) {
     for (let i = 0, p = 0; p < n; i += 4, p++) { ch[0][p] = d[i]; ch[1][p] = d[i + 1]; ch[2][p] = d[i + 2]; }
     blur = ch.map((c) => boxF(c, W, H, rad, new Float32Array(n)));
   }
+  const src = type === 'film' ? d.slice() : null, cx = W / 2, cy = H / 2, diag = Math.hypot(cx, cy);
+  const shift = Math.max(1.5, Math.min(W, H) / 260); // colour fringing, strongest at the edges
+  const at = (x, y, c) => { x = Math.min(W - 1, Math.max(0, Math.round(x))); y = Math.min(H - 1, Math.max(0, Math.round(y))); return src[(y * W + x) * 4 + c]; };
   for (let i = 0, p = 0; i < d.length; i += 4, p++) {
     let r = d[i], g = d[i + 1], b = d[i + 2];
     if (type === 'mono') { let l = 0.299 * r + 0.587 * g + 0.114 * b; l = (l - 128) * 1.18 + 128; r = g = b = l; }
@@ -2054,9 +2057,15 @@ function applyFilter(img, type) {
       r = r * 0.94 + 30; g = g * 0.9 + 14; b = b * 0.92 + 24;                                   // pink tint, lifted shadows
     }
     else if (type === 'film') {
+      const px = p % W, py = (p - px) / W, nx = (px - cx) / cx, ny = (py - cy) / cy;
+      r = at(px + nx * shift, py + ny * shift, 0); b = at(px - nx * shift, py - ny * shift, 2);  // lens colour fringing
+      const dist = Math.hypot(px - cx, py - cy) / diag, vig = 1 - 0.32 * dist * dist;               // darker corners
+      const leak = Math.max(0, 1 - Math.hypot(px, py * 1.4) / (diag * 0.75));                      // warm light leak, top-left
       r = 20 + r * 0.86; g = 18 + g * 0.88; b = 16 + b * 0.8;                                   // faded blacks, warm-green
+      r = r * vig + leak * leak * 70; g = g * vig + leak * leak * 30; b = b * vig + leak * leak * 6;
       r = r * 1.03; g = g * 1.01 + 1;
-      const h = ((p * 2654435761) >>> 0) / 4294967296, gr = (h - 0.5) * 14;                     // fine grain
+      let hh = Math.imul(p ^ (p >>> 15), 0x2c1b3c6d); hh = Math.imul(hh ^ (hh >>> 12), 0x297a2d39); hh ^= hh >>> 15;
+      const gr = ((hh >>> 0) / 4294967296 - 0.5) * 18;                                           // film grain
       r += gr; g += gr; b += gr;
     }
     else if (type === 'cool') {
