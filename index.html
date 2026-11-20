@@ -798,6 +798,10 @@ dialog#reprint::backdrop{background:rgba(8,6,5,.65)}
             <button type="button" class="chip" data-filter="mono" aria-pressed="false"><span class="sw" style="background:linear-gradient(135deg,#eee,#333)"></span>B&amp;W</button>
             <button type="button" class="chip" data-filter="warm" aria-pressed="false"><span class="sw" style="background:linear-gradient(135deg,#ffd38a,#c8693a)"></span>Warm</button>
             <button type="button" class="chip" data-filter="vivid" aria-pressed="false"><span class="sw" style="background:linear-gradient(135deg,#ff3d7f,#2fd1c5)"></span>Vivid</button>
+            <button type="button" class="chip" data-filter="glow" aria-pressed="false"><span class="sw" style="background:radial-gradient(circle at 35% 35%,#fffaf2,#f4c9a8)"></span>Soft Glow</button>
+            <button type="button" class="chip" data-filter="pink" aria-pressed="false"><span class="sw" style="background:linear-gradient(135deg,#ffe1ea,#f29bb8)"></span>Pink Pastel</button>
+            <button type="button" class="chip" data-filter="film" aria-pressed="false"><span class="sw" style="background:linear-gradient(135deg,#d9cfa8,#5f6b4e)"></span>Film</button>
+            <button type="button" class="chip" data-filter="noir" aria-pressed="false"><span class="sw" style="background:linear-gradient(135deg,#fff,#000 70%)"></span>Noir</button>
           </div>
         </div>
         <div>
@@ -1381,7 +1385,9 @@ const HOLD_MS = 2000, GIF_FPS = 10, GIF_MAX = 900; // GIF_MAX applies to the "sm
 const clipMs = () => Math.max(1, Math.min(10, Number(settings.countdown) || 3)) * 1000;
 const isGif = () => settings.motionFormat !== 'mp4';
 const motionLabel = () => (isGif() ? 'GIF' : 'Video');
-const FILTER_CSS = { none: 'none', mono: 'grayscale(1) contrast(1.18)', warm: 'sepia(.22) saturate(1.15) brightness(1.04)', vivid: 'saturate(1.4) contrast(1.08)' };
+const FILTER_CSS = { none: 'none', mono: 'grayscale(1) contrast(1.18)', warm: 'sepia(.22) saturate(1.15) brightness(1.04)', vivid: 'saturate(1.4) contrast(1.08)',
+  glow: 'brightness(1.08) contrast(.9) saturate(1.06) sepia(.06)', pink: 'contrast(.86) brightness(1.08) saturate(.92) sepia(.12) hue-rotate(-22deg)',
+  film: 'contrast(.86) brightness(1.04) sepia(.2) saturate(.88) hue-rotate(8deg)', noir: 'grayscale(1) contrast(1.5) brightness(.96)' };
 const LIVE_SUPPORTED = typeof window.MediaRecorder === 'function' && typeof HTMLCanvasElement.prototype.captureStream === 'function';
 const liveOn = () => LIVE_SUPPORTED && !!settings.liveEnabled;
 function pickMime() {
@@ -2020,12 +2026,37 @@ function boxBlur(src, w, h, r) {
   return out;
 }
 function applyFilter(img, type) {
-  const d = img.data;
-  for (let i = 0; i < d.length; i += 4) {
+  const d = img.data, W = img.width, H = img.height;
+  let blur = null;
+  if (type === 'glow') { // soft glow: blend in a blurred copy (smooths skin, softens highlights)
+    const n = W * H, rad = Math.max(2, Math.round(Math.min(W, H) / 90)), ch = [0, 1, 2].map(() => new Float32Array(n));
+    for (let i = 0, p = 0; p < n; i += 4, p++) { ch[0][p] = d[i]; ch[1][p] = d[i + 1]; ch[2][p] = d[i + 2]; }
+    blur = ch.map((c) => boxF(c, W, H, rad, new Float32Array(n)));
+  }
+  for (let i = 0, p = 0; i < d.length; i += 4, p++) {
     let r = d[i], g = d[i + 1], b = d[i + 2];
     if (type === 'mono') { let l = 0.299 * r + 0.587 * g + 0.114 * b; l = (l - 128) * 1.18 + 128; r = g = b = l; }
     else if (type === 'warm') { r = r * 1.07 + 12; g = g * 1.02 + 5; b = b * 0.86; }
     else if (type === 'vivid') { const l = 0.299 * r + 0.587 * g + 0.114 * b; r = (l + (r - l) * 1.4 - 128) * 1.08 + 128; g = (l + (g - l) * 1.4 - 128) * 1.08 + 128; b = (l + (b - l) * 1.4 - 128) * 1.08 + 128; }
+    else if (type === 'glow') {
+      const br = blur[0][p], bg = blur[1][p], bb = blur[2][p];
+      r = r * 0.72 + br * 0.28; g = g * 0.72 + bg * 0.28; b = b * 0.72 + bb * 0.28;          // soften
+      r = 255 - (255 - r) * (255 - br * 0.28) / 255; g = 255 - (255 - g) * (255 - bg * 0.28) / 255; b = 255 - (255 - b) * (255 - bb * 0.28) / 255; // glow
+      r = r * 1.02 + 4; g = g * 1.0 + 2; b = b * 0.98;                                           // a touch warm
+    }
+    else if (type === 'pink') {
+      const l = 0.299 * r + 0.587 * g + 0.114 * b;
+      r = l + (r - l) * 0.85; g = l + (g - l) * 0.85; b = l + (b - l) * 0.85;                   // softer colour
+      r = (r - 128) * 0.86 + 128; g = (g - 128) * 0.86 + 128; b = (b - 128) * 0.86 + 128;       // lower contrast
+      r = r * 0.94 + 30; g = g * 0.9 + 14; b = b * 0.92 + 24;                                   // pink tint, lifted shadows
+    }
+    else if (type === 'film') {
+      r = 20 + r * 0.86; g = 18 + g * 0.88; b = 16 + b * 0.8;                                   // faded blacks, warm-green
+      r = r * 1.03; g = g * 1.01 + 1;
+      const h = ((p * 2654435761) >>> 0) / 4294967296, gr = (h - 0.5) * 14;                     // fine grain
+      r += gr; g += gr; b += gr;
+    }
+    else if (type === 'noir') { let l = 0.299 * r + 0.587 * g + 0.114 * b; l = (l - 128) * 1.5 + 122; r = g = b = l; }
     d[i] = r; d[i + 1] = g; d[i + 2] = b;
   }
 }
