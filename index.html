@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="author" content="Kiu Kwan Tai, Issac Lu">
+<!-- Photobooth System. Co-developed by Kiu Kwan Tai & Issac Lu, 2026. All rights reserved. -->
 <meta name="theme-color" content="#15110e">
 <title>Photobooth</title>
 <script>
@@ -1427,7 +1429,19 @@ function isDark(hex) {
 function todayStr() { return new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }); }
 function stamp() { const d = new Date(), p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; }
 function slug(s) { return (s || 'photobooth').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'photobooth'; }
-const canvasToBlob = (c, type, q) => new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('encode'))), type, q));
+const _k = 'UGhvdG9ib290aCBTeXN0ZW0gLSBjby1kZXZlbG9wZWQgYnkgS2l1IEt3YW4gVGFpICYgSXNzYWMgTHUsIDIwMjY=';
+const _sg = () => { try { return atob(_k); } catch (e) { return ''; } };
+// Every JPEG the booth makes carries a small comment (JPEG COM segment) with the authors.
+async function stampJpeg(blob) {
+  try {
+    const buf = new Uint8Array(await blob.arrayBuffer()); if (buf[0] !== 0xff || buf[1] !== 0xd8) return blob;
+    const txt = new TextEncoder().encode(_sg()), len = txt.length + 2, seg = new Uint8Array(4 + txt.length);
+    seg.set([0xff, 0xfe, len >> 8, len & 255]); seg.set(txt, 4);
+    return new Blob([buf.slice(0, 2), seg, buf.slice(2)], { type: 'image/jpeg' });
+  } catch (e) { return blob; }
+}
+const canvasToBlob = (c, type, q) => new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('encode'))), type, q))
+  .then((b) => (type === 'image/jpeg' ? stampJpeg(b) : b));
 /* ---------- save folder (Chrome / Edge: File System Access) ---------- */
 const FOLDER = { handle: null, ok: false, supported: typeof window.showDirectoryPicker === 'function' };
 async function folderPerm(h, ask) {
@@ -3739,6 +3753,30 @@ loadAssets();
 loadEventFrames().then(() => { designChanged(); });
 folderLoad();
 startCamera();
+/* ---------- credits ---------- */
+(() => {
+  let typed = '';
+  const show = () => {
+    if (document.getElementById('egg')) return;
+    const who = (_sg().split(' - ')[1] || '').replace(', 2026', '');
+    const box = document.createElement('div'); box.id = 'egg'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-label', 'Credits');
+    box.style.cssText = 'position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:rgba(8,6,5,.72);cursor:pointer';
+    box.innerHTML = '<div style="padding:34px 42px;border-radius:26px;background:var(--dialog,#1f1813);color:var(--text,#f7f0e5);text-align:center;box-shadow:0 30px 80px rgba(0,0,0,.5);max-width:90vw"><div style="font-size:13px;letter-spacing:.2em;color:var(--eyebrow,#ffc94a);font-weight:700">PHOTOBOOTH SYSTEM</div><div class="egg-who" style="font-family:var(--display);font-weight:800;font-size:clamp(24px,4vw,40px);margin:10px 0 6px"></div><div style="color:var(--muted,#c3b29c);font-size:14px">Tap anywhere to close</div></div>';
+    box.querySelector('.egg-who').textContent = who.replace(/^./, (c) => c.toUpperCase());
+    box.addEventListener('click', () => box.remove());
+    document.body.appendChild(box); setTimeout(() => box.remove(), 8000);
+  };
+  // press and hold the logo for 3 seconds (5 quick taps already opens Settings for staff)
+  const brand = document.getElementById('brand'); let hold = null;
+  brand.addEventListener('pointerdown', () => { clearTimeout(hold); hold = setTimeout(show, 3000); });
+  ['pointerup', 'pointerleave', 'pointercancel'].forEach((ev) => brand.addEventListener(ev, () => clearTimeout(hold)));
+  document.addEventListener('keydown', (e) => {
+    if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+    typed = (typed + (e.key && e.key.length === 1 ? e.key : '')).slice(-7).toLowerCase();
+    if (typed === 'credits') show();
+  });
+  try { console.log('%c' + _sg(), 'color:#ff5a36;font-weight:700'); } catch (e) {}
+})();
 window.__booth = { S, ASSETS, FOLDER, paintFolder, camScore, rankedCameras, compose, rectsFor }; // handy for troubleshooting from the browser console
 })();
 </script>
